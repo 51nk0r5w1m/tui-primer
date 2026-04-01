@@ -1,6 +1,7 @@
 // Code generation for different TUI frameworks
 
 import type { ComponentNode } from '../../types';
+import { exportToBubbleTeaMain } from './bubbletea';
 
 /**
  * Export design to framework-specific code
@@ -346,49 +347,7 @@ function generateOpenTUIComponent(
 // ── BubbleTea ─────────────────────────────────────────────────────────────────
 
 function exportToBubbleTea(node: ComponentNode): string {
-  return `package main
-
-import (
-    "fmt"
-    tea "github.com/charmbracelet/bubbletea"
-)
-
-type model struct {
-    // Add your state here
-}
-
-func (m model) Init() tea.Cmd {
-    return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        if msg.String() == "ctrl+c" || msg.String() == "q" {
-            return m, tea.Quit
-        }
-    }
-    return m, nil
-}
-
-func (m model) View() string {
-    // Generated view
-${generateBubbleTeaView(node, 1)}
-}
-
-func main() {
-    p := tea.NewProgram(model{})
-    if _, err := p.Run(); err != nil {
-        fmt.Println("Error:", err)
-    }
-}
-`;
-}
-
-function generateBubbleTeaView(node: ComponentNode, indent: number): string {
-  const spaces = '  '.repeat(indent);
-  if (node.type === 'Text') return `${spaces}return "${node.props.content || 'Text'}"\n`;
-  return `${spaces}return "Component: ${node.type}"\n`;
+  return exportToBubbleTeaMain(node);
 }
 
 // ── Blessed ───────────────────────────────────────────────────────────────────
