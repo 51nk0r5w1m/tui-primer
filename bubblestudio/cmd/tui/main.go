@@ -1,4 +1,4 @@
-// Command tui starts the tui-factory Bubble Tea application.
+// Command tui starts the bubblestudio Bubble Tea application.
 package main
 
 import (

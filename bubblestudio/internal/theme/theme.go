@@ -1,4 +1,4 @@
-// Package theme defines lipgloss styles for the tui-factory shell.
+// Package theme defines lipgloss styles for the bubblestudio shell.
 package theme
 
 import "github.com/charmbracelet/lipgloss"
