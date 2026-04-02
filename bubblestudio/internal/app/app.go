@@ -21,6 +21,14 @@ const (
 	modeForm
 )
 
+// appTitle and footerHints are the fixed chrome strings used in both
+// bodyHeight (for size measurement) and View (for rendering), eliminating
+// the previous heuristic that hardcoded a 2-line chrome offset.
+const (
+	appTitle    = "bubblestudio"
+	footerHints = "q quit • ? help • tab form demo • esc back"
+)
+
 // Model is the root application model.
 type Model struct {
 	keys     keymap.KeyMap
@@ -51,9 +59,13 @@ func (m Model) Init() tea.Cmd {
 }
 
 // bodyHeight returns the number of lines available for the body region.
-// It reserves 1 line each for the header and footer.
+// It measures the actual rendered height of the header and footer using
+// lipgloss.Height instead of relying on a fixed 2-line heuristic, so the
+// calculation remains correct even if the theme changes vertical padding.
 func (m Model) bodyHeight() int {
-	h := m.height - 2
+	headerH := lipgloss.Height(m.theme.Header.Width(m.width).Render(appTitle))
+	footerH := lipgloss.Height(m.theme.Footer.Width(m.width).Render(footerHints))
+	h := m.height - headerH - footerH
 	if h < 0 {
 		h = 0
 	}
@@ -69,6 +81,19 @@ func (m Model) listInnerSize() (w, h int) {
 	w = max(0, m.width-hp)
 	h = max(0, m.bodyHeight()-vp)
 	return w, h
+}
+
+// route returns the next mode given a key event, decoupling mode transition
+// logic from the key-dispatch section of Update.  Returning the current mode
+// signals "no transition".
+func (m Model) route(msg tea.KeyMsg) (mode, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Tab) && m.mode == modeList:
+		return modeForm, m.form.Init()
+	case key.Matches(msg, m.keys.Back) && m.mode == modeForm:
+		return modeList, nil
+	}
+	return m.mode, nil
 }
 
 // Update handles incoming messages and updates state.
@@ -88,14 +113,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
 			return m, nil
-		// Tab switches from list to form; in form mode Tab navigates fields.
-		case key.Matches(msg, m.keys.Tab) && m.mode == modeList:
-			m.mode = modeForm
-			return m, m.form.Init()
-		// Esc returns from form to list.
-		case key.Matches(msg, m.keys.Back) && m.mode == modeForm:
-			m.mode = modeList
-			return m, nil
+		}
+
+		// Route mode transitions before forwarding to body components.
+		if next, cmd := m.route(msg); next != m.mode {
+			m.mode = next
+			return m, cmd
 		}
 
 		// Don't forward key events to body components while the help overlay is
@@ -120,7 +143,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // theme.Body is applied uniformly to all three body states so styling is
 // consistent whether the list, form, or help overlay is shown.
 func (m Model) View() string {
-	header := m.theme.Header.Width(m.width).Render("bubblestudio")
+	header := m.theme.Header.Width(m.width).Render(appTitle)
 
 	bodyStyle := m.theme.Body.Width(m.width).Height(m.bodyHeight())
 	var body string
@@ -135,7 +158,7 @@ func (m Model) View() string {
 		body = bodyStyle.Render(m.list.View())
 	}
 
-	footer := m.theme.Footer.Width(m.width).Render("q quit • ? help • tab form demo • esc back")
+	footer := m.theme.Footer.Width(m.width).Render(footerHints)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
