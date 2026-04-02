@@ -292,9 +292,7 @@ func viewComponent(st *compState, node *TUINode, focused bool) string {
 		return st.spin.View()
 
 	case "ProgressBar":
-		width := 40
 		return st.prog.ViewAs(st.value) + fmt.Sprintf(" %.0f%%", st.value*100)
-		_ = width
 
 	case "Tabs":
 		tabs := propStrings(node.Props, "tabs")
@@ -395,16 +393,6 @@ func viewTree(node *TUINode) string {
 	}
 	walk(arr, 0)
 	return strings.Join(lines, "\n")
-}
-
-// Override renderNode to handle display-only leaf types.
-func init() {
-	// Monkey-patch via a wrapper would need global state; instead the rendering
-	// logic below is merged into renderNode via the helper renderLeaf.
-	_ = viewText  // used by renderLeaf
-	_ = viewMenu
-	_ = viewBreadcrumb
-	_ = viewTree
 }
 
 // renderLeaf renders a non-container, non-interactive leaf node.

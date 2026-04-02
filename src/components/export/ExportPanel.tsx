@@ -185,7 +185,11 @@ export function ExportPanel() {
           className="w-full px-3 py-2 bg-secondary hover:bg-secondary/80 rounded text-sm font-medium flex items-center justify-center gap-2"
         >
           <Copy className="w-4 h-4" />
-          {copied ? 'Copied!' : 'Copy to Clipboard'}
+          {copied
+            ? 'Copied!'
+            : mode === 'code' && codeFormat === 'bubbletea'
+              ? 'Copy main.go'
+              : 'Copy to Clipboard'}
         </button>
         <button
           onClick={handleDownload}

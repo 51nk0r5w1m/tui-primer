@@ -391,7 +391,10 @@ function appGoMod(): string {
 
 go 1.22
 
-require github.com/tuistudio/bubblestudio v0.0.0
+require (
+\tgithub.com/charmbracelet/bubbletea v1.1.0
+\tgithub.com/tuistudio/bubblestudio v0.0.0
+)
 
 replace github.com/tuistudio/bubblestudio => ./bubblestudio
 `;
