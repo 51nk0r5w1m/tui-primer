@@ -3,7 +3,13 @@
 import { useState } from 'react';
 import { Download, Copy, Eye } from 'lucide-react';
 import { useComponentStore, useCanvasStore } from '../../stores';
-import { exportToText, exportToCode, exportToHtmlFile, ansiToHtml } from '../../utils/export';
+import {
+  exportToText,
+  exportToCode,
+  exportToHtmlFile,
+  ansiToHtml,
+  exportToBubbleTeaZip,
+} from '../../utils/export';
 import { saveToDownloadFolder } from '../../utils/downloadManager';
 // ExportFormat is typed as an interface but used as a string in the codebase
 type CodeFormat = any;
@@ -40,6 +46,20 @@ export function ExportPanel() {
   };
 
   const handleDownload = async () => {
+    // BubbleTea exports as a .zip archive containing the Go app + embedded library.
+    if (mode === 'code' && codeFormat === 'bubbletea') {
+      const tuiJson = JSON.stringify(componentStore.root, null, 2);
+      const zipBytes = exportToBubbleTeaZip(componentStore.root, tuiJson);
+      const blob = new Blob([zipBytes], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'tui-design-bubbletea.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     const output =
       mode === 'code'
         ? codeFormat === 'html'
