@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ValidateFn validates a field value and returns an error string, or "" if valid.
-type ValidateFn func(string) string
+// ValidateFn validates a field value and returns a non-nil error when invalid.
+type ValidateFn func(string) error
 
 var (
 	labelFocused  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
@@ -27,7 +27,7 @@ type Field struct {
 	Label    string
 	input    textinput.Model
 	validate ValidateFn
-	err      string
+	err      error
 }
 
 // NewField creates a Field with the given label and placeholder.
@@ -106,7 +106,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // Valid returns true when all fields pass their validation functions.
 func (m Model) Valid() bool {
 	for _, f := range m.fields {
-		if f.validate != nil && f.validate(f.input.Value()) != "" {
+		if f.validate != nil && f.validate(f.input.Value()) != nil {
 			return false
 		}
 	}
@@ -133,8 +133,8 @@ func (m Model) View() string {
 			b.WriteString(labelBlurred.Render(f.Label) + "\n")
 			b.WriteString(inputBlurred.Render(f.input.View()) + "\n")
 		}
-		if f.err != "" {
-			b.WriteString(errorStyle.Render("  ✗ "+f.err) + "\n")
+		if f.err != nil {
+			b.WriteString(errorStyle.Render("  ✗ "+f.err.Error()) + "\n")
 		}
 		b.WriteString("\n")
 	}

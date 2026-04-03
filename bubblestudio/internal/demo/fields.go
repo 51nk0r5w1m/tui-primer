@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/tuistudio/bubblestudio/internal/form"
@@ -10,11 +11,11 @@ import (
 // All labels and defaults are generic and domain-agnostic.
 func FormFields() []form.Field {
 	return []form.Field{
-		form.NewField("Title", "enter a title", func(v string) string {
+		form.NewField("Title", "enter a title", func(v string) error {
 			if strings.TrimSpace(v) == "" {
-				return "required"
+				return errors.New("required")
 			}
-			return ""
+			return nil
 		}),
 		form.NewField("Description", "enter a description (optional)", nil),
 		form.NewField("Version", "e.g. 1.0.0", nil),
