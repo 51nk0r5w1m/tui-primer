@@ -788,6 +788,7 @@ function pyTuple(row: string[]): string {
 }
 
 function pyString(value: string): string {
+  // Avoid a control-character regex while still escaping Python backspace literals.
   return `"${value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
