@@ -437,7 +437,7 @@ function collectTextualImports(node: ComponentNode): TextualImports {
     widgets: new Set<string>(['Static']),
   };
 
-  const visit = (current: ComponentNode) => {
+  const collectImportsFromNode = (current: ComponentNode) => {
     if (current.hidden) return;
 
     const container = textualContainerFor(current);
@@ -479,10 +479,10 @@ function collectTextualImports(node: ComponentNode): TextualImports {
         break;
     }
 
-    current.children.forEach(visit);
+    current.children.forEach(collectImportsFromNode);
   };
 
-  visit(node);
+  collectImportsFromNode(node);
   return imports;
 }
 
@@ -590,12 +590,12 @@ function textualStaticText(node: ComponentNode): string {
 
   if (node.type === 'Tree') {
     const lines: string[] = [];
-    const walk = (item: any, depth: number) => {
+    const renderTreeNode = (item: any, depth: number) => {
       const label = textualItemLabel(item);
       lines.push(`${'  '.repeat(depth)}${depth > 0 ? '└─ ' : ''}${label}`);
-      ((item && item.children) || []).forEach((child: any) => walk(child, depth + 1));
+      ((item && item.children) || []).forEach((child: any) => renderTreeNode(child, depth + 1));
     };
-    ((node.props.items as any[]) || []).forEach((item) => walk(item, 0));
+    ((node.props.items as any[]) || []).forEach((item) => renderTreeNode(item, 0));
     return lines.join('\n') || 'Tree';
   }
 
@@ -774,7 +774,7 @@ function textualBorderStyle(style?: string): string {
 
 function textualVarName(id: string): string {
   const safeName = id.replace(/[^a-zA-Z0-9_]/g, '_');
-  return `widget_${safeName || 'node'}`;
+  return `widget_${safeName.length ? safeName : 'node'}`;
 }
 
 function pyTableRows(rows: string[][]): string {
@@ -788,7 +788,7 @@ function pyTuple(row: string[]): string {
 }
 
 function pyString(value: string): string {
-  // Avoid a control-character regex while still escaping Python backspace literals.
+  // Escape common Python string literal sequences without using a control-character regex.
   return `"${value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
