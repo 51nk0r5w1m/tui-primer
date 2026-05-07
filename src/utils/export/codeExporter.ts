@@ -617,7 +617,7 @@ function generateTextualMountBody(node: ComponentNode): string {
     .map((table) => {
       const spaces = '        ';
       return (
-        `${spaces}${textualVarName(table.id)} = self.query_one("#${table.id}", DataTable)\n` +
+        `${spaces}${textualVarName(table.id)} = self.query_one(${pyString(`#${table.id}`)}, DataTable)\n` +
         `${spaces}${textualVarName(table.id)}.add_columns(${table.columns.map(pyString).join(', ')})\n` +
         `${spaces}${textualVarName(table.id)}.add_rows(${pyTableRows(table.rows)})\n`
       );
@@ -627,7 +627,7 @@ function generateTextualMountBody(node: ComponentNode): string {
   const progressBody = progressBars
     .map((progress) => {
       const spaces = '        ';
-      return `${spaces}${textualVarName(progress.id)} = self.query_one("#${progress.id}", ProgressBar)\n${spaces}${textualVarName(progress.id)}.update(progress=${progress.value})\n`;
+      return `${spaces}${textualVarName(progress.id)} = self.query_one(${pyString(`#${progress.id}`)}, ProgressBar)\n${spaces}${textualVarName(progress.id)}.update(progress=${progress.value})\n`;
     })
     .join('\n');
 
@@ -640,6 +640,7 @@ function collectTextualTables(node: ComponentNode): TextualTable[] {
   const visit = (current: ComponentNode) => {
     if (current.hidden) return;
     if (current.type === 'Table') {
+      if (!current.id) return;
       tables.push({
         id: current.id,
         columns: (current.props.columns as string[]) || ['Column 1', 'Column 2'],
@@ -659,6 +660,7 @@ function collectTextualProgressBars(node: ComponentNode): TextualProgress[] {
   const visit = (current: ComponentNode) => {
     if (current.hidden) return;
     if (current.type === 'ProgressBar') {
+      if (!current.id) return;
       progressBars.push({
         id: current.id,
         value: (current.props.value as number) ?? 0,
@@ -771,16 +773,30 @@ function textualBorderStyle(style?: string): string {
 }
 
 function textualVarName(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_]/g, '_');
+  const safeName = id.replace(/[^a-zA-Z0-9_]/g, '_');
+  return `widget_${safeName || 'node'}`;
 }
 
 function pyTableRows(rows: string[][]): string {
   if (!rows.length) return '[]';
-  return `[${rows.map((row) => `(${row.map((cell) => pyString(String(cell))).join(', ')})`).join(', ')}]`;
+  return `[${rows.map(pyTuple).join(', ')}]`;
+}
+
+function pyTuple(row: string[]): string {
+  const values = row.map((cell) => pyString(String(cell)));
+  return `(${values.join(', ')}${values.length === 1 ? ',' : ''})`;
 }
 
 function pyString(value: string): string {
-  return JSON.stringify(value);
+  return `"${value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/\f/g, '\\f')
+    .split(String.fromCharCode(8))
+    .join('\\b')}"`;
 }
 
 function pyBool(value: boolean): 'True' | 'False' {
