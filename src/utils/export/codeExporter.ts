@@ -393,15 +393,21 @@ function generateBlessedComponents(node: ComponentNode, indent: number): string 
 // ── Textual ───────────────────────────────────────────────────────────────────
 
 function exportToTextual(node: ComponentNode): string {
+  const imports = collectTextualImports(node);
+  const css = generateTextualCss(node);
+  const mountBody = generateTextualMountBody(node);
+  const eventHandlers = generateTextualEventHandlers(imports.widgets);
+
   return `from textual.app import App, ComposeResult
-from textual.widgets import Static, Button, Input
+${imports.containers.size ? `from textual.containers import ${Array.from(imports.containers).sort().join(', ')}\n` : ''}from textual.widgets import ${Array.from(imports.widgets).sort().join(', ')}
+
 
 class MyApp(App):
-    def compose(self) -> ComposeResult:
-${generateTextualComponents(node, 2)}
+${css ? `    CSS = ${pyString(css)}\n\n` : ''}    BINDINGS = [("q", "quit", "Quit")]
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        pass
+    def compose(self) -> ComposeResult:
+${generateTextualComponents(node, 2) || '        pass\n'}
+${mountBody ? `\n    def on_mount(self) -> None:\n${mountBody}` : ''}${eventHandlers}
 
 if __name__ == "__main__":
     app = MyApp()
@@ -409,16 +415,376 @@ if __name__ == "__main__":
 `;
 }
 
-function generateTextualComponents(node: ComponentNode, indent: number): string {
-  const spaces = '  '.repeat(indent);
-  if (node.type === 'Text') return `${spaces}yield Static("${node.props.content || 'Text'}")\n`;
-  if (node.type === 'Button') return `${spaces}yield Button("${node.props.label || 'Button'}")\n`;
-  if (node.type === 'TextInput')
-    return `${spaces}yield Input(placeholder="${node.props.placeholder || ''}")\n`;
+interface TextualImports {
+  containers: Set<string>;
+  widgets: Set<string>;
+}
 
-  let result = '';
-  for (const child of node.children) result += generateTextualComponents(child, indent);
-  return result || `${spaces}yield Static("${node.type}")\n`;
+interface TextualTable {
+  id: string;
+  columns: string[];
+  rows: string[][];
+}
+
+interface TextualProgress {
+  id: string;
+  value: number;
+}
+
+function collectTextualImports(node: ComponentNode): TextualImports {
+  const imports: TextualImports = {
+    containers: new Set<string>(),
+    widgets: new Set<string>(['Static']),
+  };
+
+  const visit = (current: ComponentNode) => {
+    if (current.hidden) return;
+
+    const container = textualContainerFor(current);
+    if (container) imports.containers.add(container);
+
+    switch (current.type) {
+      case 'Button':
+        imports.widgets.add('Button');
+        break;
+      case 'TextInput':
+        imports.widgets.add('Input');
+        break;
+      case 'Checkbox':
+        imports.widgets.add('Checkbox');
+        break;
+      case 'Radio':
+        imports.widgets.add('RadioButton');
+        break;
+      case 'Select':
+        imports.widgets.add('Select');
+        break;
+      case 'Spinner':
+        imports.widgets.add('LoadingIndicator');
+        break;
+      case 'ProgressBar':
+        imports.widgets.add('ProgressBar');
+        break;
+      case 'Table':
+        imports.widgets.add('DataTable');
+        break;
+      case 'List':
+      case 'Menu':
+      case 'Tabs':
+        imports.widgets.add('Label');
+        imports.widgets.add('ListItem');
+        imports.widgets.add('ListView');
+        break;
+      default:
+        break;
+    }
+
+    current.children.forEach(visit);
+  };
+
+  visit(node);
+  return imports;
+}
+
+function generateTextualComponents(node: ComponentNode, indent: number): string {
+  if (node.hidden) return '';
+
+  const spaces = '  '.repeat(indent);
+  const attrs = textualAttrs(node);
+  const container = textualContainerFor(node);
+
+  if (container) {
+    const children = node.children
+      .map((child) => generateTextualComponents(child, indent + 1))
+      .join('');
+    return `${spaces}with ${container}(${attrs}):\n${children || `${spaces}  yield Static(${pyString(node.name || node.type)})\n`}`;
+  }
+
+  switch (node.type) {
+    case 'Text':
+      return `${spaces}yield Static(${pyString((node.props.content as string) || 'Text')}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Button':
+      return `${spaces}yield Button(${pyString((node.props.label as string) || 'Button')}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'TextInput':
+      return `${spaces}yield Input(value=${pyString((node.props.value as string) || '')}, placeholder=${pyString((node.props.placeholder as string) || '')}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Checkbox':
+      return `${spaces}yield Checkbox(${pyString((node.props.label as string) || 'Option')}, value=${pyBool(!!node.props.checked)}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Radio':
+      return `${spaces}yield RadioButton(${pyString((node.props.label as string) || 'Option')}, value=${pyBool(!!node.props.checked)}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Select':
+      return `${spaces}yield Select(${textualSelectOptions(node)}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Spinner':
+      return `${spaces}yield LoadingIndicator(${attrs})\n`;
+    case 'ProgressBar': {
+      const total = (node.props.max as number) ?? 100;
+      return `${spaces}yield ProgressBar(total=${total}${attrs ? `, ${attrs}` : ''})\n`;
+    }
+    case 'Table':
+      return `${spaces}yield DataTable(${attrs})\n`;
+    case 'List':
+    case 'Menu':
+    case 'Tabs':
+      return `${spaces}yield ListView(\n${textualListItems(node, indent + 1)}${spaces}${attrs})\n`;
+    case 'Tree':
+    case 'Breadcrumb':
+      return `${spaces}yield Static(${pyString(textualStaticText(node))}${attrs ? `, ${attrs}` : ''})\n`;
+    case 'Spacer':
+      return `${spaces}yield Static("", ${attrs || 'classes="spacer"'})\n`;
+    default:
+      return `${spaces}yield Static(${pyString(node.name || node.type)}${attrs ? `, ${attrs}` : ''})\n`;
+  }
+}
+
+function textualContainerFor(node: ComponentNode): string | null {
+  if (node.type === 'Screen' || node.type === 'Box' || node.type === 'Modal') {
+    return node.layout.direction === 'row' ? 'Horizontal' : 'Vertical';
+  }
+
+  if (node.type === 'Grid') return 'Grid';
+  return null;
+}
+
+function textualAttrs(node: ComponentNode): string {
+  const attrs: string[] = [];
+  if (node.id) attrs.push(`id=${pyString(node.id)}`);
+
+  const classes = [
+    `tuistudio-${node.type.toLowerCase()}`,
+    typeof node.props.className === 'string' ? node.props.className : '',
+    typeof node.props.classes === 'string' ? node.props.classes : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (classes) attrs.push(`classes=${pyString(classes)}`);
+  if (node.type === 'Button' && node.props.disabled) attrs.push('disabled=True');
+  return attrs.join(', ');
+}
+
+function textualSelectOptions(node: ComponentNode): string {
+  const options = ((node.props.options as string[]) || ['Option 1', 'Option 2']).map((option) => [
+    option,
+    option.toLowerCase().replace(/\s+/g, '_'),
+  ]);
+
+  return `[${options.map(([label, value]) => `(${pyString(label)}, ${pyString(value)})`).join(', ')}]`;
+}
+
+function textualListItems(node: ComponentNode, indent: number): string {
+  const spaces = '  '.repeat(indent);
+  const labels =
+    node.type === 'Tabs'
+      ? ((node.props.tabs as any[]) || []).map((item) => textualItemLabel(item))
+      : ((node.props.items as any[]) || []).map((item) => textualItemLabel(item));
+
+  return labels.map((label) => `${spaces}ListItem(Label(${pyString(label)})),\n`).join('');
+}
+
+function textualStaticText(node: ComponentNode): string {
+  if (node.type === 'Breadcrumb') {
+    const separator = (node.props.separator as string) || ' / ';
+    return ((node.props.items as any[]) || [])
+      .map((item) => textualItemLabel(item))
+      .join(separator);
+  }
+
+  if (node.type === 'Tree') {
+    const lines: string[] = [];
+    const walk = (item: any, depth: number) => {
+      const label = textualItemLabel(item);
+      lines.push(`${'  '.repeat(depth)}${depth > 0 ? '└─ ' : ''}${label}`);
+      ((item && item.children) || []).forEach((child: any) => walk(child, depth + 1));
+    };
+    ((node.props.items as any[]) || []).forEach((item) => walk(item, 0));
+    return lines.join('\n') || 'Tree';
+  }
+
+  return node.name || node.type;
+}
+
+function textualItemLabel(item: any): string {
+  if (typeof item === 'string') return item;
+  const icon = item?.icon ? `${item.icon} ` : '';
+  return `${icon}${item?.label || item?.name || 'Item'}`;
+}
+
+function generateTextualMountBody(node: ComponentNode): string {
+  const tables = collectTextualTables(node);
+  const progressBars = collectTextualProgressBars(node);
+  if (!tables.length && !progressBars.length) return '';
+
+  const tableBody = tables
+    .map((table) => {
+      const spaces = '        ';
+      return (
+        `${spaces}${textualVarName(table.id)} = self.query_one("#${table.id}", DataTable)\n` +
+        `${spaces}${textualVarName(table.id)}.add_columns(${table.columns.map(pyString).join(', ')})\n` +
+        `${spaces}${textualVarName(table.id)}.add_rows(${pyTableRows(table.rows)})\n`
+      );
+    })
+    .join('\n');
+
+  const progressBody = progressBars
+    .map((progress) => {
+      const spaces = '        ';
+      return `${spaces}${textualVarName(progress.id)} = self.query_one("#${progress.id}", ProgressBar)\n${spaces}${textualVarName(progress.id)}.update(progress=${progress.value})\n`;
+    })
+    .join('\n');
+
+  return [tableBody, progressBody].filter(Boolean).join('\n');
+}
+
+function collectTextualTables(node: ComponentNode): TextualTable[] {
+  const tables: TextualTable[] = [];
+
+  const visit = (current: ComponentNode) => {
+    if (current.hidden) return;
+    if (current.type === 'Table') {
+      tables.push({
+        id: current.id,
+        columns: (current.props.columns as string[]) || ['Column 1', 'Column 2'],
+        rows: (current.props.rows as string[][]) || [],
+      });
+    }
+    current.children.forEach(visit);
+  };
+
+  visit(node);
+  return tables;
+}
+
+function collectTextualProgressBars(node: ComponentNode): TextualProgress[] {
+  const progressBars: TextualProgress[] = [];
+
+  const visit = (current: ComponentNode) => {
+    if (current.hidden) return;
+    if (current.type === 'ProgressBar') {
+      progressBars.push({
+        id: current.id,
+        value: (current.props.value as number) ?? 0,
+      });
+    }
+    current.children.forEach(visit);
+  };
+
+  visit(node);
+  return progressBars;
+}
+
+function generateTextualEventHandlers(widgets: Set<string>): string {
+  const handlers: string[] = [];
+
+  if (widgets.has('Button')) {
+    handlers.push(`    def on_button_pressed(self, event: Button.Pressed) -> None:
+        # Add button behavior here.
+        pass
+`);
+  }
+
+  if (widgets.has('Input')) {
+    handlers.push(`    def on_input_changed(self, event: Input.Changed) -> None:
+        # React to input changes here.
+        pass
+`);
+  }
+
+  if (widgets.has('Checkbox')) {
+    handlers.push(`    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        # React to checkbox changes here.
+        pass
+`);
+  }
+
+  if (widgets.has('Select')) {
+    handlers.push(`    def on_select_changed(self, event: Select.Changed) -> None:
+        # React to select changes here.
+        pass
+`);
+  }
+
+  return handlers.length ? `\n${handlers.join('\n')}` : '';
+}
+
+function generateTextualCss(node: ComponentNode): string {
+  const rules: string[] = [];
+
+  const visit = (current: ComponentNode) => {
+    if (current.hidden) return;
+
+    const declarations = textualCssDeclarations(current);
+    if (current.id && declarations.length) {
+      rules.push(`#${current.id} {\n${declarations.map((decl) => `  ${decl}`).join('\n')}\n}`);
+    }
+
+    current.children.forEach(visit);
+  };
+
+  visit(node);
+  return rules.join('\n\n');
+}
+
+function textualCssDeclarations(node: ComponentNode): string[] {
+  const declarations: string[] = [];
+  const layout = node.layout as any;
+  const style = node.style as any;
+
+  if (typeof layout.width === 'number') declarations.push(`width: ${layout.width};`);
+  if (typeof layout.height === 'number') declarations.push(`height: ${layout.height};`);
+  if (layout.width === 'fill' || node.props.width === 'fill') declarations.push('width: 1fr;');
+  if (layout.height === 'fill' || node.props.height === 'fill') declarations.push('height: 1fr;');
+  if (layout.padding !== undefined)
+    declarations.push(`padding: ${textualSpacing(layout.padding)};`);
+  if (layout.margin !== undefined) declarations.push(`margin: ${textualSpacing(layout.margin)};`);
+  if (layout.gap !== undefined && node.children.length)
+    declarations.push(`grid-gutter: ${layout.gap};`);
+  if (style.color) declarations.push(`color: ${style.color};`);
+  if (style.backgroundColor) declarations.push(`background: ${style.backgroundColor};`);
+  if (style.border)
+    declarations.push(
+      `border: ${textualBorderStyle(style.borderStyle)} ${style.borderColor || style.color || 'white'};`
+    );
+  const textStyles = [
+    style.bold ? 'bold' : '',
+    style.italic ? 'italic' : '',
+    style.underline ? 'underline' : '',
+  ].filter(Boolean);
+  if (textStyles.length) declarations.push(`text-style: ${textStyles.join(' ')};`);
+
+  return declarations;
+}
+
+function textualSpacing(
+  value: number | { top: number; right: number; bottom: number; left: number }
+): string {
+  if (typeof value === 'number') return `${value}`;
+  return `${value.top} ${value.right} ${value.bottom} ${value.left}`;
+}
+
+function textualBorderStyle(style?: string): string {
+  const map: Record<string, string> = {
+    single: 'solid',
+    double: 'double',
+    rounded: 'round',
+    bold: 'heavy',
+  };
+  return map[style || 'single'] || 'solid';
+}
+
+function textualVarName(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+function pyTableRows(rows: string[][]): string {
+  if (!rows.length) return '[]';
+  return `[${rows.map((row) => `(${row.map((cell) => pyString(String(cell))).join(', ')})`).join(', ')}]`;
+}
+
+function pyString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function pyBool(value: boolean): 'True' | 'False' {
+  return value ? 'True' : 'False';
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
