@@ -787,6 +787,8 @@ function pyTuple(row: string[]): string {
   return `(${values.join(', ')}${values.length === 1 ? ',' : ''})`;
 }
 
+const PY_BACKSPACE = String.fromCharCode(8);
+
 function pyString(value: string): string {
   // Escape common Python string literal sequences without using a control-character regex.
   return `"${value
@@ -796,7 +798,7 @@ function pyString(value: string): string {
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t')
     .replace(/\f/g, '\\f')
-    .split(String.fromCharCode(8))
+    .split(PY_BACKSPACE)
     .join('\\b')}"`;
 }
 
